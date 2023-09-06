@@ -1,0 +1,89 @@
+name: Build and deploy
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "platform_content/**"
+      - ".github/workflows/cd-setup.yaml"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+env:
+  GO_VERSION: "1.20.6"
+  APP_NAME: demo-app
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Run build
+        run: go build -v
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push container
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USER }}/${{ env.APP_NAME }}:${{ github.sha }}
+
+      - name: Kick off CD/RO application deploy
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        env:
+          CDRO_URL: ${{ secrets.CDRO_URL }}
+          CDRO_TOKEN: ${{ secrets.CDRO_TOKEN }}
+        uses: cloudbees-github-actions/run-process@v1
+        with:
+          projectName: GHA
+          applicationName: Demo App
+          processName: Deploy Application
+          environmentName: demo-dev
+          actualParameter: |
+            imageTag: ${{ github.sha }}
+            imageRepository: ${{ secrets.DOCKERHUB_USER }}/${{ env.APP_NAME }}
+
+      - name: Create release from template
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          CDRO_URL: ${{ secrets.CDRO_URL }}
+          CDRO_TOKEN: ${{ secrets.CDRO_TOKEN }}
+        uses: cloudbees-github-actions/create-release-from-template@v1
+        with:
+          templateProjectName: GHA
+          templateCatalogName: GHA
+          templateName: Simple Release
+          actualParameter: |
+            releaseName: "Simple Release ${{ github.sha }}"
+            imageTag: "${{ github.sha }}"
+            imageRepository: ${{ secrets.DOCKERHUB_USER }}/${{ env.APP_NAME }}
+
+      - name: Run release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          CDRO_URL: ${{ secrets.CDRO_URL }}
+          CDRO_TOKEN: ${{ secrets.CDRO_TOKEN }}
+        uses: cloudbees-github-actions/start-release@v1
+        with:
+          projectName: GHA
+          releaseName: Simple Release ${{ github.sha }}

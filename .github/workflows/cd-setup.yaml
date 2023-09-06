@@ -1,0 +1,34 @@
+name: Setup CD config
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    env:
+      CDRO_URL: ${{ secrets.CDRO_URL }}
+      CDRO_TOKEN: ${{ secrets.CDRO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup project + credentials
+        uses: cloudbees-github-actions/eval-dsl@v1
+        with:
+          dsl-file: ./platform_content/project.groovy
+          dsl-args: |
+            githubPAT: ${{ secrets.GH_PAT }}
+
+      - name: Setup applications + environments
+        uses: cloudbees-github-actions/eval-dsl@v1
+        with:
+          dsl-file: ./platform_content/application.groovy
+          dsl-args: |
+            repoUrl: ${{ github.server_url }}/${{ github.repository }}
+            dockerHubUser: ${{ secrets.DOCKERHUB_USER }}
+
+      - name: Setup service catalog
+        uses: cloudbees-github-actions/eval-dsl@v1
+        with:
+          dsl-file: ./platform_content/catalog.groovy
+          dsl-args: |
+            dockerHubUser: ${{ secrets.DOCKERHUB_USER }}
